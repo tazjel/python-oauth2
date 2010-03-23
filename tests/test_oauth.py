@@ -31,7 +31,8 @@ import time
 import urllib
 import urlparse
 from types import ListType
-
+import mox
+import httplib2
 
 # Fix for python2.5 compatibility
 try:
@@ -257,6 +258,13 @@ class TestRequest(unittest.TestCase):
         req = oauth.Request(method, url2)
         self.assertEquals(req.url, exp2)
 
+    def test_url_query(self):
+        url = "https://www.google.com/m8/feeds/contacts/default/full/?alt=json&max-contacts=10"
+        method = "GET"
+        
+        req = oauth.Request(method, url)
+        self.assertEquals(req.url, url)
+
     def test_get_parameter(self):
         url = "http://example.com"
         method = "GET"
@@ -361,6 +369,35 @@ class TestRequest(unittest.TestCase):
 
         a = parse_qs(exp.query)
         b = parse_qs(res.query)
+        self.assertEquals(a, b)
+    
+    def test_to_url_with_query(self):
+        url = "https://www.google.com/m8/feeds/contacts/default/full/?alt=json&max-contacts=10"
+
+        params = {
+            'oauth_version': "1.0",
+            'oauth_nonce': "4572616e48616d6d65724c61686176",
+            'oauth_timestamp': "137131200",
+            'oauth_consumer_key': "0685bd9184jfhq22",
+            'oauth_signature_method': "HMAC-SHA1",
+            'oauth_token': "ad180jjd733klru7",
+            'oauth_signature': "wOJIO9A2W5mFwDgiDvZbTSMK%2FPY%3D",
+        }
+
+        req = oauth.Request("GET", url, params)
+        # Note: the url above already has query parameters, so append new ones with &
+        exp = urlparse.urlparse("%s&%s" % (url, urllib.urlencode(params)))
+        res = urlparse.urlparse(req.to_url())
+        self.assertEquals(exp.scheme, res.scheme)
+        self.assertEquals(exp.netloc, res.netloc)
+        self.assertEquals(exp.path, res.path)
+
+        a = parse_qs(exp.query)
+        b = parse_qs(res.query)
+        self.assertTrue('alt' in b)
+        self.assertTrue('max-contacts' in b)
+        self.assertEquals(b['alt'], ['json'])
+        self.assertEquals(b['max-contacts'], ['10'])
         self.assertEquals(a, b)
 
     def test_get_normalized_parameters(self):
@@ -737,6 +774,7 @@ class TestClient(unittest.TestCase):
     host = 'http://oauth-sandbox.sevengoslings.net'
 
     def setUp(self):
+        self.mox = mox.Mox()
         self.consumer = oauth.Consumer(key=self.consumer_key,
             secret=self.consumer_secret)
 
@@ -747,12 +785,30 @@ class TestClient(unittest.TestCase):
             'blah': 599999
         }
 
+    def tearDown(self):
+        self.mox.UnsetStubs()
+
     def _uri(self, type):
         uri = self.oauth_uris.get(type)
         if uri is None:
             raise KeyError("%s is not a valid OAuth URI type." % type)
 
         return "%s%s" % (self.host, uri)
+
+    def create_simple_multipart_data(self, data):
+        boundary = '---Boundary-%d' % random.randint(1,1000)
+        crlf = '\r\n'
+        items = []
+        for key, value in data.iteritems():
+            items += [
+                '--'+boundary,
+                'Content-Disposition: form-data; name="%s"'%str(key),
+                '',
+                str(value),
+            ]
+        items += ['', '--'+boundary+'--', '']
+        content_type = 'multipart/form-data; boundary=%s' % boundary
+        return content_type, crlf.join(items)
 
     def test_access_token_get(self):
         """Test getting an access token via GET."""
@@ -788,6 +844,32 @@ class TestClient(unittest.TestCase):
         """A test of a two-legged OAuth GET request."""
         resp, content = self._two_legged("GET")
         self.assertEquals(int(resp['status']), 200)
+
+    def test_multipart_post_does_not_alter_body(self):
+        self.mox.StubOutWithMock(httplib2.Http, 'request')
+        random_result = random.randint(1,100)
+
+        data = {
+            'rand-%d'%random.randint(1,100):random.randint(1,100),
+        }
+        content_type, body = self.create_simple_multipart_data(data)
+
+        client = oauth.Client(self.consumer, None)
+        uri = self._uri('two_legged')
+
+        expected_kwargs = {
+            'method':'POST',
+            'body':body,
+            'redirections':httplib2.DEFAULT_MAX_REDIRECTS,
+            'connection_type':None,
+            'headers':mox.IsA(dict),
+        }
+        httplib2.Http.request(client, uri, **expected_kwargs).AndReturn(random_result)
+
+        self.mox.ReplayAll()
+        result = client.request(uri, 'POST', headers={'Content-Type':content_type}, body=body)
+        self.assertEqual(result, random_result)
+        self.mox.VerifyAll()
 
 if __name__ == "__main__":
     unittest.main()

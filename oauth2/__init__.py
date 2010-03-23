@@ -29,7 +29,6 @@ import urlparse
 import hmac
 import binascii
 import httplib2
-from types import ListType
 
 try:
     from urlparse import parse_qs, parse_qsl
@@ -267,8 +266,7 @@ class Request(dict):
  
     @setter
     def url(self, value):
-        parts = urlparse.urlparse(value)
-        scheme, netloc, path = parts[:3]
+        scheme, netloc, path, params, query, fragment = urlparse.urlparse(value)
 
         # Exclude default port numbers.
         if scheme == 'http' and netloc[-3:] == ':80':
@@ -279,7 +277,7 @@ class Request(dict):
         if scheme != 'http' and scheme != 'https':
             raise ValueError("Unsupported URL %s (%s)." % (value, scheme))
 
-        value = '%s://%s%s' % (scheme, netloc, path)
+        value = urlparse.urlunparse((scheme, netloc, path, params, query, fragment))
         self.__dict__['url'] = value
  
     @setter
@@ -317,7 +315,13 @@ class Request(dict):
  
     def to_url(self):
         """Serialize as a URL for a GET request."""
-        return '%s?%s' % (self.url, self.to_postdata())
+        base_url = urlparse.urlparse(self.url)
+        query = parse_qs(base_url.query)
+        for k, v in self.items():
+            query.setdefault(k, []).append(v)
+        url = (base_url.scheme, base_url.netloc, base_url.path, base_url.params,
+               urllib.urlencode(query, True), base_url.fragment)
+        return urlparse.urlunparse(url)
 
     def get_parameter(self, parameter):
         ret = self.get(parameter)
@@ -328,9 +332,17 @@ class Request(dict):
  
     def get_normalized_parameters(self):
         """Return a string that contains the parameters that must be signed."""
-        # 1.0a/9.1.1 states that kvp must be sorted by key, then by value
-        items = [(k, v if type(v) != ListType else sorted(v)) for k,v in sorted(self.items()) if k != 'oauth_signature']
-        encoded_str = urllib.urlencode(items, True)
+        items = []
+        for key, value in self.iteritems():
+            if key == 'oauth_signature':
+                continue
+            # 1.0a/9.1.1 states that kvp must be sorted by key, then by value,
+            # so we unpack sequence values into multiple items for sorting.
+            if hasattr(value, '__iter__'):
+                items.extend((key, item) for item in value)
+            else:
+                items.append((key, value))
+        encoded_str = urllib.urlencode(sorted(items))
         # Encode signature parameters per Oauth Core 1.0 protocol
         # spec draft 7, section 3.6
         # (http://tools.ietf.org/html/draft-hammer-oauth-07#section-3.6)
@@ -579,15 +591,24 @@ class Client(httplib2.Http):
 
     def request(self, uri, method="GET", body=None, headers=None, 
         redirections=httplib2.DEFAULT_MAX_REDIRECTS, connection_type=None):
-        
+        DEFAULT_CONTENT_TYPE = 'application/x-www-form-urlencoded'
+
         if not isinstance(headers, dict):
             headers = {}
 
-        if body and method == "POST":
+        is_multipart = method == 'POST' and headers.get('Content-Type', DEFAULT_CONTENT_TYPE) != DEFAULT_CONTENT_TYPE
+
+        if body and method == "POST" and not is_multipart:
             parameters = dict(parse_qsl(body))
         elif method == "GET":
             parsed = urlparse.urlparse(uri)
-            parameters = parse_qsl(parsed.query)
+
+            try:
+                query = parsed.query
+            except AttributeError:
+                query = parsed[4]
+
+            parameters = parse_qsl(query)     
         else:
             parameters = None
 
@@ -596,9 +617,13 @@ class Client(httplib2.Http):
 
         req.sign_request(self.method, self.consumer, self.token)
 
+
         if method == "POST":
-            body = req.to_postdata() 
-            headers['Content-Type'] = 'application/x-www-form-urlencoded'
+            headers['Content-Type'] = headers.get('Content-Type', DEFAULT_CONTENT_TYPE)
+            if is_multipart:
+                headers.update(req.to_header())
+            else:
+                body = req.to_postdata()
         elif method == "GET":
             uri = req.to_url()
         else:
@@ -667,11 +692,11 @@ class SignatureMethod_HMAC_SHA1(SignatureMethod):
 
         # HMAC object.
         try:
-            import hashlib # 2.5
-            hashed = hmac.new(key, raw, hashlib.sha1)
+            from hashlib import sha1 as sha
         except ImportError:
             import sha # Deprecated
-            hashed = hmac.new(key, raw, sha)
+
+        hashed = hmac.new(key, raw, sha)
 
         # Calculate the digest base 64.
         return binascii.b2a_base64(hashed.digest())[:-1]
