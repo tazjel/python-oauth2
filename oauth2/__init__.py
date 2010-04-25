@@ -288,12 +288,12 @@ class Request(dict):
     def get_nonoauth_parameters(self):
         """Get any non-OAuth parameters."""
         return dict([(k, v) for k, v in self.iteritems() 
-                    if not k.startswith('oauth_')])
+                    if not k.startswith('oauth_')] or k.startswith("x_auth"))
  
     def to_header(self, realm=''):
         """Serialize as a header for an HTTPAuth request."""
         oauth_params = ((k, v) for k, v in self.items() 
-                            if k.startswith('oauth_'))
+                            if k.startswith('oauth_') or k.startswith("x_auth"))
         stringy_params = ((k, escape(str(v))) for k, v in oauth_params)
         header_params = ('%s="%s"' % (k, v) for k, v in stringy_params)
         params_header = ', '.join(header_params)
@@ -563,67 +563,70 @@ class Server(object):
             raise Error('Expired timestamp: given %d and now %s has a '
                 'greater difference than threshold %d' % (timestamp, now, self.timestamp_threshold))
 
-# import httplib2
-# class Client(httplib2.Http):
-#     """OAuthClient is a worker to attempt to execute a request."""
-# 
-#     def __init__(self, consumer, token=None, cache=None, timeout=None,
-#         proxy_info=None):
-# 
-#         if consumer is not None and not isinstance(consumer, Consumer):
-#             raise ValueError("Invalid consumer.")
-# 
-#         if token is not None and not isinstance(token, Token):
-#             raise ValueError("Invalid token.")
-# 
-#         self.consumer = consumer
-#         self.token = token
-#         self.method = SignatureMethod_HMAC_SHA1()
-# 
-#         httplib2.Http.__init__(self, cache=cache, timeout=timeout, 
-#             proxy_info=proxy_info)
-# 
-#     def set_signature_method(self, method):
-#         if not isinstance(method, SignatureMethod):
-#             raise ValueError("Invalid signature method.")
-# 
-#         self.method = method
-# 
-#     def request(self, uri, method="GET", body=None, headers=None, 
-#         redirections=httplib2.DEFAULT_MAX_REDIRECTS, connection_type=None):
-#         DEFAULT_CONTENT_TYPE = 'application/x-www-form-urlencoded'
-# 
-#         if not isinstance(headers, dict):
-#             headers = {}
-# 
-#         is_multipart = method == 'POST' and headers.get('Content-Type', DEFAULT_CONTENT_TYPE) != DEFAULT_CONTENT_TYPE
-# 
-#         if body and method == "POST" and not is_multipart:
-#             parameters = dict(parse_qsl(body))
-#         else:
-#             parameters = None
-# 
-#         req = Request.from_consumer_and_token(self.consumer, token=self.token,
-#             http_method=method, http_url=uri, parameters=parameters)
-# 
-#         req.sign_request(self.method, self.consumer, self.token)
-# 
-# 
-#         if method == "POST":
-#             headers['Content-Type'] = headers.get('Content-Type', DEFAULT_CONTENT_TYPE)
-#             if is_multipart:
-#                 headers.update(req.to_header())
-#             else:
-#                 body = req.to_postdata()
-#         elif method == "GET":
-#             uri = req.to_url()
-#         else:
-#             headers.update(req.to_header())
-# 
-#         return httplib2.Http.request(self, uri, method=method, body=body, 
-#             headers=headers, redirections=redirections, 
-#             connection_type=connection_type)
+try:
+    import httplib2
+    class Client(httplib2.Http):
+        """OAuthClient is a worker to attempt to execute a request."""
 
+        def __init__(self, consumer, token=None, cache=None, timeout=None,
+            proxy_info=None):
+
+            if consumer is not None and not isinstance(consumer, Consumer):
+                raise ValueError("Invalid consumer.")
+
+            if token is not None and not isinstance(token, Token):
+                raise ValueError("Invalid token.")
+
+            self.consumer = consumer
+            self.token = token
+            self.method = SignatureMethod_HMAC_SHA1()
+
+            httplib2.Http.__init__(self, cache=cache, timeout=timeout, 
+                proxy_info=proxy_info)
+
+        def set_signature_method(self, method):
+            if not isinstance(method, SignatureMethod):
+                raise ValueError("Invalid signature method.")
+
+            self.method = method
+
+        def request(self, uri, method="GET", body=None, headers=None, 
+            redirections=httplib2.DEFAULT_MAX_REDIRECTS, connection_type=None):
+            DEFAULT_CONTENT_TYPE = 'application/x-www-form-urlencoded'
+
+            if not isinstance(headers, dict):
+                headers = {}
+
+            is_multipart = method == 'POST' and headers.get('Content-Type', DEFAULT_CONTENT_TYPE) != DEFAULT_CONTENT_TYPE
+
+            if body and method == "POST" and not is_multipart:
+                parameters = dict(parse_qsl(body))
+            else:
+                parameters = None
+
+            req = Request.from_consumer_and_token(self.consumer, token=self.token,
+                http_method=method, http_url=uri, parameters=parameters)
+
+            req.sign_request(self.method, self.consumer, self.token)
+
+
+            if method == "POST":
+                headers['Content-Type'] = headers.get('Content-Type', DEFAULT_CONTENT_TYPE)
+                if is_multipart:
+                    headers.update(req.to_header())
+                else:
+                    body = req.to_postdata()
+            elif method == "GET":
+                uri = req.to_url()
+            else:
+                headers.update(req.to_header())
+
+            return httplib2.Http.request(self, uri, method=method, body=body, 
+                headers=headers, redirections=redirections, 
+                connection_type=connection_type)
+except:
+    #no httplib2, then no client. 
+    pass
 
 class SignatureMethod(object):
     """A way of signing requests.
@@ -707,4 +710,3 @@ class SignatureMethod_PLAINTEXT(SignatureMethod):
     def sign(self, request, consumer, token):
         key, raw = self.signing_base(request, consumer, token)
         return raw
-
