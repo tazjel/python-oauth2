@@ -29,7 +29,12 @@ import random
 import urlparse
 import hmac
 import binascii
+<<<<<<< HEAD
 
+=======
+import httplib2
+from types import ListType
+>>>>>>> woodya/master
 
 try:
     from urlparse import parse_qs, parse_qsl
@@ -365,8 +370,8 @@ class Request(dict):
         # Include any query string parameters from the provided URL
         query = urlparse.urlparse(self.url)[4]
         items.extend(self._split_url_string(query).items())
-
         encoded_str = urllib.urlencode(sorted(items))
+
         # Encode signature parameters per Oauth Core 1.0 protocol
         # spec draft 7, section 3.6
         # (http://tools.ietf.org/html/draft-hammer-oauth-07#section-3.6)

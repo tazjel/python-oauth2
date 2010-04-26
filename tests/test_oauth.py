@@ -249,7 +249,7 @@ class TestRequest(unittest.TestCase):
         req = oauth.Request(method, url1)
         self.assertEquals(req.normalized_url, exp1)
         self.assertEquals(req.url, url1)
-
+        
         req = oauth.Request(method, url2)
         self.assertEquals(req.normalized_url, exp2)
         self.assertEquals(req.url, url2)
@@ -421,6 +421,7 @@ class TestRequest(unittest.TestCase):
             self.assertEquals(value, normalized_params[key])
         self.assertEquals(normalized_params['alt'], 'json')
         self.assertEquals(normalized_params['max-contacts'], '10')
+
 
     def test_get_normalized_parameters(self):
         url = "http://sp.example.com/"
