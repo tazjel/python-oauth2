@@ -848,9 +848,7 @@ class TestClient(unittest.TestCase):
         self.assertEquals(int(resp['status']), 200)
 
         res = dict(parse_qsl(content))
-        self.assertTrue('oauth_token' in res)
-        self.assertTrue('oauth_token_secret' in res)
-
+    
     def _two_legged(self, method):
         client = oauth.Client(self.consumer, None)
 
