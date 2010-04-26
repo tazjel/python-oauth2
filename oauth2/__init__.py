@@ -29,12 +29,8 @@ import random
 import urlparse
 import hmac
 import binascii
-<<<<<<< HEAD
 
-=======
-import httplib2
-from types import ListType
->>>>>>> woodya/master
+
 
 try:
     from urlparse import parse_qs, parse_qsl
