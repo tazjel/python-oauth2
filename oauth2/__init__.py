@@ -254,9 +254,10 @@ class Request(dict):
  
     version = VERSION
  
-    def __init__(self, method=HTTP_METHOD, url=None, parameters=None):
+    def __init__(self, method=HTTP_METHOD, url=None, parameters=None, extended_params=None):
         self.method = method
         self.url = url
+        self.extended_params = extended_params or ()
         if parameters is not None:
             self.update(parameters)
  
@@ -273,10 +274,12 @@ class Request(dict):
                 netloc = netloc[:-4]
             if scheme not in ('http', 'https'):
                 raise ValueError("Unsupported URL %s (%s)." % (value, scheme))
-
+                
+            self.scheme = scheme
             # Normalized URL excludes params, query, and fragment.
             self.normalized_url = urlparse.urlunparse((scheme, netloc, path, None, None, None))
         else:
+            self.scheme = None
             self.normalized_url = None
             self.__dict__['url'] = None
  
@@ -290,12 +293,12 @@ class Request(dict):
     def get_nonoauth_parameters(self):
         """Get any non-OAuth parameters."""
         return dict([(k, v) for k, v in self.iteritems() 
-                    if not k.startswith('oauth_')] or k.startswith("x_auth"))
+                    if not k.startswith('oauth_') and k not in self.extended_params])
  
     def to_header(self, realm=''):
         """Serialize as a header for an HTTPAuth request."""
         oauth_params = ((k, v) for k, v in self.items() 
-                            if k.startswith('oauth_') or k.startswith("x_auth"))
+                            if k.startswith('oauth_') or k in self.extended_params)
         stringy_params = ((k, escape(str(v))) for k, v in oauth_params)
         header_params = ('%s="%s"' % (k, v) for k, v in stringy_params)
         params_header = ', '.join(header_params)
@@ -312,6 +315,13 @@ class Request(dict):
         # to resulting querystring. for example self["k"] = ["v1", "v2"] will
         # result in 'k=v1&k=v2' and not k=%5B%27v1%27%2C+%27v2%27%5D
         return urllib.urlencode(self, True)
+    
+    def to_nonoauth_getdata(self):
+        """Serialize as post data for a POST request."""
+        # tell urlencode to deal with sequence values and map them correctly
+        # to resulting querystring. for example self["k"] = ["v1", "v2"] will
+        # result in 'k=v1&k=v2' and not k=%5B%27v1%27%2C+%27v2%27%5D
+        return urllib.urlencode(self.get_nonoauth_parameters(), True)
  
     def to_url(self):
         """Serialize as a URL for a GET request."""
@@ -394,11 +404,11 @@ class Request(dict):
     @classmethod
     def make_nonce(cls):
         """Generate pseudorandom number."""
-        return str(random.randint(0, 100000000))
+        return generate_nonce(10)
  
     @classmethod
     def from_request(cls, http_method, http_url, headers=None, parameters=None,
-            query_string=None):
+            query_string=None, extended_params=None):
         """Combines multiple parameter sources."""
         if parameters is None:
             parameters = {}
@@ -412,6 +422,7 @@ class Request(dict):
                 try:
                     # Get the parameters from the header.
                     header_params = cls._split_header(auth_header)
+                    #print "header", header_params
                     parameters.update(header_params)
                 except:
                     raise Error('Unable to parse OAuth parameters from '
@@ -419,22 +430,24 @@ class Request(dict):
  
         # GET or POST query string.
         if query_string:
+            #print 'query_string', query_string
             query_params = cls._split_url_string(query_string)
             parameters.update(query_params)
  
         # URL parameters.
         param_str = urlparse.urlparse(http_url)[4] # query
         url_params = cls._split_url_string(param_str)
+        #print "url_params", url_params
         parameters.update(url_params)
- 
+        
         if parameters:
-            return cls(http_method, http_url, parameters)
+            return cls(http_method, http_url, parameters, extended_params)
  
         return None
  
     @classmethod
     def from_consumer_and_token(cls, consumer, token=None,
-            http_method=HTTP_METHOD, http_url=None, parameters=None):
+            http_method=HTTP_METHOD, http_url=None, parameters=None, extended_params=None):
         if not parameters:
             parameters = {}
  
@@ -453,11 +466,11 @@ class Request(dict):
             if token.verifier:
                 parameters['oauth_verifier'] = token.verifier
  
-        return Request(http_method, http_url, parameters)
+        return cls(http_method, http_url, parameters, extended_params)
  
     @classmethod
     def from_token_and_callback(cls, token, callback=None, 
-        http_method=HTTP_METHOD, http_url=None, parameters=None):
+        http_method=HTTP_METHOD, http_url=None, parameters=None, extended_params=None):
 
         if not parameters:
             parameters = {}
@@ -467,7 +480,7 @@ class Request(dict):
         if callback:
             parameters['oauth_callback'] = callback
  
-        return cls(http_method, http_url, parameters)
+        return cls(http_method, http_url, parameters, extended_params)
  
     @staticmethod
     def _split_header(header):
@@ -570,7 +583,7 @@ class Server(object):
 
         if not valid:
             key, base = signature_method.signing_base(request, consumer, token)
-
+            
             raise Error('Invalid signature. Expected signature base ' 
                 'string: %s' % base)
 
@@ -628,7 +641,7 @@ try:
 
             req = Request.from_consumer_and_token(self.consumer, token=self.token,
                 http_method=method, http_url=uri, parameters=parameters)
-
+            
             req.sign_request(self.method, self.consumer, self.token)
 
 
@@ -726,9 +739,11 @@ class SignatureMethod_PLAINTEXT(SignatureMethod):
         secret."""
         sig = '%s&' % escape(consumer.secret)
         if token:
-            sig = sig + escape(token.secret)
+            sig += escape(token.secret)
         return sig, sig
 
     def sign(self, request, consumer, token):
         key, raw = self.signing_base(request, consumer, token)
         return raw
+
+
