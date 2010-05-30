@@ -570,7 +570,7 @@ class Client(httplib2.Http):
             parameters=parameters)
 
         req.sign_request(self.method, self.consumer, self.token)
-		
+        
         if method == "POST":
             headers['Content-Type'] = headers.get('Content-Type', 
                 DEFAULT_CONTENT_TYPE)
@@ -587,11 +587,6 @@ class Client(httplib2.Http):
             uri = req.to_url()
         else:
             headers.update(req.to_header())
-        print "uri",uri
-        print "headers",headers
-        print "method",method
-        print "body",body
-        print "method",method
         
         return httplib2.Http.request(self, uri, method=method, body=body, 
             headers=headers, redirections=redirections, 
