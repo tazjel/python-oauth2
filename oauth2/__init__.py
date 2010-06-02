@@ -726,13 +726,13 @@ class SignatureMethod_HMAC_SHA1(SignatureMethod):
     def signing_base(self, request, consumer, token):
         if request.normalized_url is None:
             raise ValueError("Base URL for request is not set.")
-			
+
         sig = (
             escape(request.method),
             escape(request.normalized_url),
             escape(request.get_normalized_parameters()),
         )
-		
+        
         key = '%s&' % escape(consumer.secret)
         if token:
             key += escape(token.secret)
@@ -748,7 +748,7 @@ class SignatureMethod_HMAC_SHA1(SignatureMethod):
             from hashlib import sha1 as sha
         except ImportError:
             import sha # Deprecated
-		
+        
         hashed = hmac.new(key, raw, sha)
 
         # Calculate the digest base 64.
