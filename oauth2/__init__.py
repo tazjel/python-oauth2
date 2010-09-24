@@ -404,16 +404,6 @@ class Request(dict):
         self['oauth_signature'] = signature_method.sign(self, consumer, token)
  
     @classmethod
-    def make_timestamp(cls):
-        """Get seconds since epoch (UTC)."""
-        return str(int(time.time()))
- 
-    @classmethod
-    def make_nonce(cls):
-        """Generate pseudorandom number."""
-        return str(random.randint(0, 100000000))
- 
-    @classmethod
     def from_request(cls, http_method, http_url, headers=None, parameters=None,
             query_string=None):
         """Combines multiple parameter sources."""
@@ -457,8 +447,8 @@ class Request(dict):
  
         defaults = {
             'oauth_consumer_key': consumer.key,
-            'oauth_timestamp': cls.make_timestamp(),
-            'oauth_nonce': cls.make_nonce(),
+            'oauth_timestamp': generate_timestamp(),
+            'oauth_nonce': generate_nonce(),
             'oauth_version': cls.version,
         }
  
