@@ -319,7 +319,7 @@ Gmail supports OAuth over IMAP and SMTP via a standard they call XOAUTH. This al
     conn = imaplib.IMAP4_SSL('imap.googlemail.com')
     conn.debug = 4 
 
-    # This is the only thing in the API for impaplib.IMAP4_SSL that has 
+    # This is the only thing in the API for imaplib.IMAP4_SSL that has 
     # changed. You now authenticate with the URL, consumer, and token.
     conn.authenticate(url, consumer, token)
 
