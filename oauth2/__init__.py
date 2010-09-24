@@ -528,7 +528,8 @@ class Client(httplib2.Http):
         self.method = method
 
     def request(self, uri, method="GET", body=None, headers=None, 
-        redirections=httplib2.DEFAULT_MAX_REDIRECTS, connection_type=None):
+        redirections=httplib2.DEFAULT_MAX_REDIRECTS, connection_type=None,
+        parameters=None):
         DEFAULT_CONTENT_TYPE = 'application/x-www-form-urlencoded'
 
         if not isinstance(headers, dict):
@@ -538,9 +539,8 @@ class Client(httplib2.Http):
             DEFAULT_CONTENT_TYPE) != DEFAULT_CONTENT_TYPE
 
         if body and method == "POST" and not is_multipart:
-            parameters = dict(parse_qsl(body))
-        else:
-            parameters = None
+            parameters = parameters or {}
+            parameters.update(dict(parse_qsl(body)))
 
         req = Request.from_consumer_and_token(self.consumer, 
             token=self.token, http_method=method, http_url=uri, 
