@@ -331,14 +331,14 @@ class Request(dict):
         # tell urlencode to deal with sequence values and map them correctly
         # to resulting querystring. for example self["k"] = ["v1", "v2"] will
         # result in 'k=v1&k=v2' and not k=%5B%27v1%27%2C+%27v2%27%5D
-        return urllib.urlencode(self, True)
+        return urllib.urlencode(self, True).replace('+', '%20')
     
     def to_nonoauth_getdata(self):
         """Serialize as post data for a POST request."""
         # tell urlencode to deal with sequence values and map them correctly
         # to resulting querystring. for example self["k"] = ["v1", "v2"] will
         # result in 'k=v1&k=v2' and not k=%5B%27v1%27%2C+%27v2%27%5D
-        return urllib.urlencode(self.get_nonoauth_parameters(), True)
+        return urllib.urlencode(self.get_nonoauth_parameters(), True).replace('+', '%20')
  
     def to_url(self):
         """Serialize as a URL for a GET request."""
@@ -392,14 +392,18 @@ class Request(dict):
 
         # Include any query string parameters from the provided URL
         query = urlparse.urlparse(self.url)[4]
-        items.extend(self._split_url_string(query).items())
+        
+        url_items = self._split_url_string(query).items()
+        non_oauth_url_items = list([(k, v) for k, v in url_items  if not k.startswith('oauth_')])
+        items.extend(non_oauth_url_items)
+
         encoded_str = urllib.urlencode(sorted(items))
 
         # Encode signature parameters per Oauth Core 1.0 protocol
         # spec draft 7, section 3.6
         # (http://tools.ietf.org/html/draft-hammer-oauth-07#section-3.6)
         # Spaces must be encoded with "%20" instead of "+"
-        return encoded_str.replace('+', '%20')
+        return encoded_str.replace('+', '%20').replace('%7E', '~')
  
     def sign_request(self, signature_method, consumer, token):
         """Set the signature parameter to the result of sign."""
