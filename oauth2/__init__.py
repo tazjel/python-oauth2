@@ -34,9 +34,9 @@ import httplib2
 
 
 try:
-    from urlparse import parse_qs, parse_qsl
+    from urlparse import parse_qs
 except ImportError:
-    from cgi import parse_qs, parse_qsl
+    from cgi import parse_qs
 
 
 VERSION = '1.0'  # Hi Blaine!
@@ -566,8 +566,9 @@ class Client(httplib2.Http):
             DEFAULT_CONTENT_TYPE) != DEFAULT_CONTENT_TYPE
 
         if body and method == "POST" and not is_multipart:
-            parameters = parameters or {}
-            parameters.update(dict(parse_qsl(body)))
+            parameters = parse_qs(body)
+        else:
+            parameters = None
 
         req = Request.from_consumer_and_token(self.consumer, 
             token=self.token, http_method=method, http_url=uri, 
