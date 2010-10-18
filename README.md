@@ -137,7 +137,7 @@ can be easily translated to a web application.
 
 # Logging into Django w/ Twitter
 
-Twitter also has the ability to authenticate a user [via an OAuth flow](http://apiwiki.twitter.com/Sign-in-with-Twitter). This
+Twitter also has the ability to authenticate a user [via an OAuth flow](http://dev.twitter.com/pages/sign_in_with_twitter). This
 flow is exactly like the three-legged OAuth flow, except you send them to a 
 slightly different URL to authorize them. 
 
@@ -319,7 +319,7 @@ Gmail supports OAuth over IMAP and SMTP via a standard they call XOAUTH. This al
     conn = imaplib.IMAP4_SSL('imap.googlemail.com')
     conn.debug = 4 
 
-    # This is the only thing in the API for impaplib.IMAP4_SSL that has 
+    # This is the only thing in the API for imaplib.IMAP4_SSL that has 
     # changed. You now authenticate with the URL, consumer, and token.
     conn.authenticate(url, consumer, token)
 

@@ -474,8 +474,8 @@ class Request(dict):
  
         defaults = {
             'oauth_consumer_key': consumer.key,
-            'oauth_timestamp': cls.make_timestamp(),
-            'oauth_nonce': cls.make_nonce(),
+            'oauth_timestamp': generate_timestamp(),
+            'oauth_nonce': generate_nonce(),
             'oauth_version': cls.version,
         }
  
@@ -555,7 +555,8 @@ class Client(httplib2.Http):
         self.method = method
 
     def request(self, uri, method="GET", body=None, headers=None, 
-        redirections=httplib2.DEFAULT_MAX_REDIRECTS, connection_type=None, force_header=False):
+        redirections=httplib2.DEFAULT_MAX_REDIRECTS, connection_type=None, force_header=False, 
+        parameters=None):
         DEFAULT_CONTENT_TYPE = 'application/x-www-form-urlencoded'
 
         if not isinstance(headers, dict):
@@ -565,9 +566,8 @@ class Client(httplib2.Http):
             DEFAULT_CONTENT_TYPE) != DEFAULT_CONTENT_TYPE
 
         if body and method == "POST" and not is_multipart:
-            parameters = dict(parse_qsl(body))
-        else:
-            parameters = None
+            parameters = parameters or {}
+            parameters.update(dict(parse_qsl(body)))
 
         req = Request.from_consumer_and_token(self.consumer, 
             token=self.token, http_method=method, http_url=uri, 
