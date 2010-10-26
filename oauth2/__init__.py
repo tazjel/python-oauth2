@@ -568,7 +568,8 @@ class Client(httplib2.Http):
         if body and method == "POST" and not is_multipart:
             parameters = parse_qs(body)
         else:
-            parameters = None
+            parameters = parameters or {}	
+            parameters.update(parse_qs(body))
 
         req = Request.from_consumer_and_token(self.consumer, 
             token=self.token, http_method=method, http_url=uri, 
