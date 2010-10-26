@@ -15,7 +15,7 @@ setup(name="oauth2",
       license = "MIT License",
       keywords="oauth",
       zip_safe = True,
-      tests_require=['nose', 'coverage', 'mox']
+      tests_require=['nose', 'coverage', 'mox'],
       classifiers=[
           'Intended Audience :: Developers',
           'Development Status :: 5 - Stable',
