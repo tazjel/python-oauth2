@@ -569,7 +569,8 @@ class Client(httplib2.Http):
             parameters = parse_qs(body)
         else:
             parameters = parameters or {}	
-            parameters.update(parse_qs(body))
+            if body:
+                parameters.update(parse_qs(body))
 
         req = Request.from_consumer_and_token(self.consumer, 
             token=self.token, http_method=method, http_url=uri, 
