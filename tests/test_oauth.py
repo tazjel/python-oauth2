@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 """
 The MIT License
 
@@ -30,7 +32,7 @@ import time
 import urllib
 import urlparse
 from types import ListType
-import mox
+import mock
 import httplib2
 
 # Fix for python2.5 compatibility
@@ -248,13 +250,30 @@ class TestToken(unittest.TestCase):
         new = oauth.Token.from_string(string)
         self._compare_tokens(new)
 
-class TestRequest(unittest.TestCase):
+class ReallyEqualMixin:
+    def failUnlessReallyEqual(self, a, b, msg=None):
+        self.failUnlessEqual(a, b, msg=msg)
+        self.failUnlessEqual(type(a), type(b), msg="a :: %r, b :: %r, %r" % (a, b, msg))
+
+class TestFuncs(unittest.TestCase):
+    def test_to_unicode(self):
+        self.failUnlessRaises(TypeError, oauth.to_unicode, '\xae')
+        self.failUnlessRaises(TypeError, oauth.to_unicode_optional_iterator, '\xae')
+        self.failUnlessRaises(TypeError, oauth.to_unicode_optional_iterator, ['\xae'])
+
+        self.failUnlessEqual(oauth.to_unicode(':-)'), u':-)')
+        self.failUnlessEqual(oauth.to_unicode(u'\u00ae'), u'\u00ae')
+        self.failUnlessEqual(oauth.to_unicode('\xc2\xae'), u'\u00ae')
+        self.failUnlessEqual(oauth.to_unicode_optional_iterator([':-)']), [u':-)'])
+        self.failUnlessEqual(oauth.to_unicode_optional_iterator([u'\u00ae']), [u'\u00ae'])
+
+class TestRequest(unittest.TestCase, ReallyEqualMixin):
     def test_setter(self):
         url = "http://example.com"
         method = "GET"
         req = oauth.Request(method)
-        self.assertTrue(req.url is None)
-        self.assertTrue(req.normalized_url is None)
+        self.assertTrue(not hasattr(req, 'url') or req.url is None)
+        self.assertTrue(not hasattr(req, 'normalized_url') or req.normalized_url is None)
 
     def test_deleter(self):
         url = "http://example.com"
@@ -342,9 +361,12 @@ class TestRequest(unittest.TestCase):
         }
 
         other_params = {
-            'foo': 'baz',
-            'bar': 'foo',
-            'multi': ['FOO','BAR']
+            u'foo': u'baz',
+            u'bar': u'foo',
+            u'multi': [u'FOO',u'BAR'],
+            u'uni_utf8': u'\xae',
+            u'uni_unicode': u'\u00ae',
+            u'uni_unicode_2': u'åÅøØ',
         }
 
         params = oauth_params
@@ -461,6 +483,33 @@ class TestRequest(unittest.TestCase):
         self.assertEquals(b['max-contacts'], ['10'])
         self.assertEquals(a, b)
 
+    def test_signature_base_string_nonascii_nonutf8(self):
+        consumer = oauth.Consumer('consumer_token', 'consumer_secret')
+
+        url = u'http://api.simplegeo.com:80/1.0/places/address.json?q=monkeys&category=animal&address=41+Decatur+St,+San+Francisc\u2766,+CA'
+        req = oauth.Request("GET", url)
+        self.failUnlessReallyEqual(req.normalized_url, u'http://api.simplegeo.com/1.0/places/address.json')
+        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(), consumer, None)
+        self.failUnlessReallyEqual(req['oauth_signature'], 'WhufgeZKyYpKsI70GZaiDaYwl6g=')
+
+        url = 'http://api.simplegeo.com:80/1.0/places/address.json?q=monkeys&category=animal&address=41+Decatur+St,+San+Francisc\xe2\x9d\xa6,+CA'
+        req = oauth.Request("GET", url)
+        self.failUnlessReallyEqual(req.normalized_url, u'http://api.simplegeo.com/1.0/places/address.json')
+        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(), consumer, None)
+        self.failUnlessReallyEqual(req['oauth_signature'], 'WhufgeZKyYpKsI70GZaiDaYwl6g=')
+
+        url = 'http://api.simplegeo.com:80/1.0/places/address.json?q=monkeys&category=animal&address=41+Decatur+St,+San+Francisc%E2%9D%A6,+CA'
+        req = oauth.Request("GET", url)
+        self.failUnlessReallyEqual(req.normalized_url, u'http://api.simplegeo.com/1.0/places/address.json')
+        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(), consumer, None)
+        self.failUnlessReallyEqual(req['oauth_signature'], 'WhufgeZKyYpKsI70GZaiDaYwl6g=')
+
+        url = u'http://api.simplegeo.com:80/1.0/places/address.json?q=monkeys&category=animal&address=41+Decatur+St,+San+Francisc%E2%9D%A6,+CA'
+        req = oauth.Request("GET", url)
+        self.failUnlessReallyEqual(req.normalized_url, u'http://api.simplegeo.com/1.0/places/address.json')
+        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(), consumer, None)
+        self.failUnlessReallyEqual(req['oauth_signature'], 'WhufgeZKyYpKsI70GZaiDaYwl6g=')
+
     def test_signature_base_string_with_query(self):
         url = "https://www.google.com/m8/feeds/contacts/default/full/?alt=json&max-contacts=10"
         params = {
@@ -485,6 +534,59 @@ class TestRequest(unittest.TestCase):
         self.assertEquals(normalized_params['alt'], 'json')
         self.assertEquals(normalized_params['max-contacts'], '10')
 
+    def test_get_normalized_parameters_empty(self):
+        url = "http://sp.example.com/?empty="
+
+        req = oauth.Request("GET", url)
+
+        res = req.get_normalized_parameters()
+
+        expected='empty='
+
+        self.assertEquals(expected, res)
+
+    def test_get_normalized_parameters_duplicate(self):
+        url = "http://example.com/v2/search/videos?oauth_nonce=79815175&oauth_timestamp=1295397962&oauth_consumer_key=mykey&oauth_signature_method=HMAC-SHA1&q=car&oauth_version=1.0&offset=10&oauth_signature=spWLI%2FGQjid7sQVd5%2FarahRxzJg%3D"
+
+        req = oauth.Request("GET", url)
+
+        res = req.get_normalized_parameters()
+
+        expected='oauth_consumer_key=mykey&oauth_nonce=79815175&oauth_signature_method=HMAC-SHA1&oauth_timestamp=1295397962&oauth_version=1.0&offset=10&q=car'
+
+        self.assertEquals(expected, res)
+
+    def test_get_normalized_parameters_from_url(self):
+        # example copied from
+        # https://github.com/ciaranj/node-oauth/blob/master/tests/oauth.js
+        # which in turns says that it was copied from
+        # http://oauth.net/core/1.0/#sig_base_example .
+        url = "http://photos.example.net/photos?file=vacation.jpg&oauth_consumer_key=dpf43f3p2l4k3l03&oauth_nonce=kllo9940pd9333jh&oauth_signature_method=HMAC-SHA1&oauth_timestamp=1191242096&oauth_token=nnch734d00sl2jdk&oauth_version=1.0&size=original"
+
+        req = oauth.Request("GET", url)
+
+        res = req.get_normalized_parameters()
+
+        expected = 'file=vacation.jpg&oauth_consumer_key=dpf43f3p2l4k3l03&oauth_nonce=kllo9940pd9333jh&oauth_signature_method=HMAC-SHA1&oauth_timestamp=1191242096&oauth_token=nnch734d00sl2jdk&oauth_version=1.0&size=original'
+
+        self.assertEquals(expected, res)
+
+    def test_signing_base(self):
+        # example copied from
+        # https://github.com/ciaranj/node-oauth/blob/master/tests/oauth.js
+        # which in turns says that it was copied from
+        # http://oauth.net/core/1.0/#sig_base_example .
+        url = "http://photos.example.net/photos?file=vacation.jpg&oauth_consumer_key=dpf43f3p2l4k3l03&oauth_nonce=kllo9940pd9333jh&oauth_signature_method=HMAC-SHA1&oauth_timestamp=1191242096&oauth_token=nnch734d00sl2jdk&oauth_version=1.0&size=original"
+
+        req = oauth.Request("GET", url)
+
+        sm = oauth.SignatureMethod_HMAC_SHA1()
+
+        consumer = oauth.Consumer('dpf43f3p2l4k3l03', 'foo')
+        key, raw = sm.signing_base(req, consumer, None)
+
+        expected = 'GET&http%3A%2F%2Fphotos.example.net%2Fphotos&file%3Dvacation.jpg%26oauth_consumer_key%3Ddpf43f3p2l4k3l03%26oauth_nonce%3Dkllo9940pd9333jh%26oauth_signature_method%3DHMAC-SHA1%26oauth_timestamp%3D1191242096%26oauth_token%3Dnnch734d00sl2jdk%26oauth_version%3D1.0%26size%3Doriginal'
+        self.assertEquals(expected, raw)
 
     def test_get_normalized_parameters(self):
         url = "http://sp.example.com/"
@@ -496,16 +598,19 @@ class TestRequest(unittest.TestCase):
             'oauth_consumer_key': "0685bd9184jfhq22",
             'oauth_signature_method': "HMAC-SHA1",
             'oauth_token': "ad180jjd733klru7",
-            'multi': ['FOO','BAR'],
+            'multi': ['FOO','BAR', u'\u00ae', '\xc2\xae'],
+            'multi_same': ['FOO','FOO'],
+            'uni_utf8_bytes': '\xc2\xae',
+            'uni_unicode_object': u'\u00ae'
         }
 
         req = oauth.Request("GET", url, params)
 
         res = req.get_normalized_parameters()
-        
-        srtd = [(k, v if type(v) != ListType else sorted(v)) for k,v in sorted(params.items())]
 
-        self.assertEquals(urllib.urlencode(srtd, True), res)
+        expected='multi=BAR&multi=FOO&multi=%C2%AE&multi=%C2%AE&multi_same=FOO&multi_same=FOO&oauth_consumer_key=0685bd9184jfhq22&oauth_nonce=4572616e48616d6d65724c61686176&oauth_signature_method=HMAC-SHA1&oauth_timestamp=137131200&oauth_token=ad180jjd733klru7&oauth_version=1.0&uni_unicode_object=%C2%AE&uni_utf8_bytes=%C2%AE'
+
+        self.assertEquals(expected, res)
 
     def test_get_normalized_parameters_ignores_auth_signature(self):
         url = "http://sp.example.com/"
@@ -559,6 +664,120 @@ class TestRequest(unittest.TestCase):
         expected = urllib.urlencode(sorted(params.items())).replace('+', '%20')
         self.assertEqual(expected, res)
 
+    @mock.patch('oauth2.Request.make_timestamp')
+    @mock.patch('oauth2.Request.make_nonce')
+    def test_request_nonutf8_bytes(self, mock_make_nonce, mock_make_timestamp):
+        mock_make_nonce.return_value = 5
+        mock_make_timestamp.return_value = 6
+
+        tok = oauth.Token(key="tok-test-key", secret="tok-test-secret")
+        con = oauth.Consumer(key="con-test-key", secret="con-test-secret")
+        params = {
+            'oauth_version': "1.0",
+            'oauth_nonce': "4572616e48616d6d65724c61686176",
+            'oauth_timestamp': "137131200",
+            'oauth_token': tok.key,
+            'oauth_consumer_key': con.key
+        }
+
+        # If someone passes a sequence of bytes which is not ascii for
+        # url, we'll raise an exception as early as possible.
+        url = "http://sp.example.com/\x92" # It's actually cp1252-encoding...
+        self.assertRaises(TypeError, oauth.Request, method="GET", url=url, parameters=params)
+
+        # And if they pass an unicode, then we'll use it.
+        url = u'http://sp.example.com/\u2019'
+        req = oauth.Request(method="GET", url=url, parameters=params)
+        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(), con, None)
+        self.failUnlessReallyEqual(req['oauth_signature'], 'cMzvCkhvLL57+sTIxLITTHfkqZk=')
+
+        # And if it is a utf-8-encoded-then-percent-encoded non-ascii
+        # thing, we'll decode it and use it.
+        url = "http://sp.example.com/%E2%80%99"
+        req = oauth.Request(method="GET", url=url, parameters=params)
+        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(), con, None)
+        self.failUnlessReallyEqual(req['oauth_signature'], 'yMLKOyNKC/DkyhUOb8DLSvceEWE=')
+
+        # Same thing with the params.
+        url = "http://sp.example.com/"
+
+        # If someone passes a sequence of bytes which is not ascii in
+        # params, we'll raise an exception as early as possible.
+        params['non_oauth_thing'] = '\xae', # It's actually cp1252-encoding...
+        self.assertRaises(TypeError, oauth.Request, method="GET", url=url, parameters=params)
+
+        # And if they pass a unicode, then we'll use it.
+        params['non_oauth_thing'] = u'\u2019'
+        req = oauth.Request(method="GET", url=url, parameters=params)
+        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(), con, None)
+        self.failUnlessReallyEqual(req['oauth_signature'], '0GU50m0v60CVDB5JnoBXnvvvKx4=')
+
+        # And if it is a utf-8-encoded non-ascii thing, we'll decode
+        # it and use it.
+        params['non_oauth_thing'] = '\xc2\xae'
+        req = oauth.Request(method="GET", url=url, parameters=params)
+        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(), con, None)
+        self.failUnlessReallyEqual(req['oauth_signature'], 'pqOCu4qvRTiGiXB8Z61Jsey0pMM=')
+
+
+        # Also if there are non-utf8 bytes in the query args.
+        url = "http://sp.example.com/?q=\x92" # cp1252
+        self.assertRaises(TypeError, oauth.Request, method="GET", url=url, parameters=params)
+
+    def test_request_hash_of_body(self):
+        tok = oauth.Token(key="token", secret="tok-test-secret")
+        con = oauth.Consumer(key="consumer", secret="con-test-secret")
+
+        # Example 1a from Appendix A.1 of
+        # http://oauth.googlecode.com/svn/spec/ext/body_hash/1.0/oauth-bodyhash.html
+        # Except that we get a differetn result than they do.
+
+        params = {
+            'oauth_version': "1.0",
+            'oauth_token': tok.key,
+            'oauth_nonce': 10288510250934,
+            'oauth_timestamp': 1236874155,
+            'oauth_consumer_key': con.key
+        }
+
+        url = u"http://www.example.com/resource"
+        req = oauth.Request(method="PUT", url=url, parameters=params, body="Hello World!", is_form_encoded=False)
+        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(), con, None)
+        self.failUnlessReallyEqual(req['oauth_body_hash'], 'Lve95gjOVATpfV8EL5X4nxwjKHE=')
+        self.failUnlessReallyEqual(req['oauth_signature'], 't+MX8l/0S8hdbVQL99nD0X1fPnM=')
+        # oauth-bodyhash.html A.1 has
+        # '08bUFF%2Fjmp59mWB7cSgCYBUpJ0U%3D', but I don't see how that
+        # is possible.
+
+        # Example 1b
+        params = {
+            'oauth_version': "1.0",
+            'oauth_token': tok.key,
+            'oauth_nonce': 10369470270925,
+            'oauth_timestamp': 1236874236,
+            'oauth_consumer_key': con.key
+        }
+
+        req = oauth.Request(method="PUT", url=url, parameters=params, body="Hello World!", is_form_encoded=False)
+        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(), con, None)
+        self.failUnlessReallyEqual(req['oauth_body_hash'], 'Lve95gjOVATpfV8EL5X4nxwjKHE=')
+        self.failUnlessReallyEqual(req['oauth_signature'], 'CTFmrqJIGT7NsWJ42OrujahTtTc=')
+
+        # Appendix A.2
+        params = {
+            'oauth_version': "1.0",
+            'oauth_token': tok.key,
+            'oauth_nonce': 8628868109991,
+            'oauth_timestamp': 1238395022,
+            'oauth_consumer_key': con.key
+        }
+
+        req = oauth.Request(method="GET", url=url, parameters=params, is_form_encoded=False)
+        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(), con, None)
+        self.failUnlessReallyEqual(req['oauth_body_hash'], '2jmj7l5rSw0yVb/vlWAYkK/YBwk=')
+        self.failUnlessReallyEqual(req['oauth_signature'], 'Zhl++aWSP0O3/hYQ0CuBc7jv38I=')
+
+
     def test_sign_request(self):
         url = "http://sp.example.com/"
 
@@ -576,14 +795,36 @@ class TestRequest(unittest.TestCase):
         req = oauth.Request(method="GET", url=url, parameters=params)
 
         methods = {
-            'TQ6vGQ5A6IZn8dmeGB4+/Jl3EMI=': oauth.SignatureMethod_HMAC_SHA1(),
+            'DX01TdHws7OninCLK9VztNTH1M4=': oauth.SignatureMethod_HMAC_SHA1(),
             'con-test-secret&tok-test-secret': oauth.SignatureMethod_PLAINTEXT()
-        }
+            }
 
         for exp, method in methods.items():
             req.sign_request(method, con, tok)
             self.assertEquals(req['oauth_signature_method'], method.name)
             self.assertEquals(req['oauth_signature'], exp)
+
+        # Also if there are non-ascii chars in the URL.
+        url = "http://sp.example.com/\xe2\x80\x99" # utf-8 bytes
+        req = oauth.Request(method="GET", url=url, parameters=params)
+        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(), con, tok)
+        self.assertEquals(req['oauth_signature'], 'loFvp5xC7YbOgd9exIO6TxB7H4s=')
+
+        url = u'http://sp.example.com/\u2019' # Python unicode object
+        req = oauth.Request(method="GET", url=url, parameters=params)
+        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(), con, tok)
+        self.assertEquals(req['oauth_signature'], 'loFvp5xC7YbOgd9exIO6TxB7H4s=')
+
+        # Also if there are non-ascii chars in the query args.
+        url = "http://sp.example.com/?q=\xe2\x80\x99" # utf-8 bytes
+        req = oauth.Request(method="GET", url=url, parameters=params)
+        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(), con, tok)
+        self.assertEquals(req['oauth_signature'], 'IBw5mfvoCsDjgpcsVKbyvsDqQaU=')
+
+        url = u'http://sp.example.com/?q=\u2019' # Python unicode object
+        req = oauth.Request(method="GET", url=url, parameters=params)
+        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(), con, tok)
+        self.assertEquals(req['oauth_signature'], 'IBw5mfvoCsDjgpcsVKbyvsDqQaU=')
 
     def test_from_request(self):
         url = "http://sp.example.com/"
@@ -797,8 +1038,7 @@ class TestServer(unittest.TestCase):
         server = oauth.Server()
         server.add_signature_method(oauth.SignatureMethod_HMAC_SHA1())
 
-        self.assertRaises(oauth.Error, server.verify_request, request,
-            consumer, token)
+        self.assertRaises(oauth.Error, server.verify_request, request, consumer, token)
 
     def test_invalid_signature_method(self):
         url = "http://sp.example.com/"
@@ -886,7 +1126,6 @@ class TestClient(unittest.TestCase):
     host = 'http://oauth-sandbox.sevengoslings.net'
 
     def setUp(self):
-        self.mox = mox.Mox()
         self.consumer = oauth.Consumer(key=self.consumer_key,
             secret=self.consumer_secret)
 
@@ -896,9 +1135,6 @@ class TestClient(unittest.TestCase):
             'multi': ['FOO','BAR'],
             'blah': 599999
         }
-
-    def tearDown(self):
-        self.mox.UnsetStubs()
 
     def _uri(self, type):
         uri = self.oauth_uris.get(type)
@@ -972,8 +1208,8 @@ class TestClient(unittest.TestCase):
         resp, content = self._two_legged("GET")
         self.assertEquals(int(resp['status']), 200)
 
-    def test_multipart_post_does_not_alter_body(self):
-        self.mox.StubOutWithMock(httplib2.Http, 'request')
+    @mock.patch('httplib2.Http.request')
+    def test_multipart_post_does_not_alter_body(self, mockHttpRequest):
         random_result = random.randint(1,100)
 
         data = {
@@ -984,49 +1220,70 @@ class TestClient(unittest.TestCase):
         client = oauth.Client(self.consumer, None)
         uri = self._uri('two_legged')
 
-        expected_kwargs = {
-            'method':'POST',
-            'body':body,
-            'redirections':httplib2.DEFAULT_MAX_REDIRECTS,
-            'connection_type':None,
-            'headers':mox.IsA(dict),
-        }
-        httplib2.Http.request(client, uri, **expected_kwargs).AndReturn(random_result)
+        def mockrequest(cl, ur, **kw):
+            self.failUnless(cl is client)
+            self.failUnless(ur is uri)
+            self.failUnlessEqual(frozenset(kw.keys()), frozenset(['method', 'body', 'redirections', 'connection_type', 'headers']))
+            self.failUnlessEqual(kw['body'], body)
+            self.failUnlessEqual(kw['connection_type'], None)
+            self.failUnlessEqual(kw['method'], 'POST')
+            self.failUnlessEqual(kw['redirections'], httplib2.DEFAULT_MAX_REDIRECTS)
+            self.failUnless(isinstance(kw['headers'], dict))
 
-        self.mox.ReplayAll()
+            return random_result
+
+        mockHttpRequest.side_effect = mockrequest
+
         result = client.request(uri, 'POST', headers={'Content-Type':content_type}, body=body)
         self.assertEqual(result, random_result)
-        self.mox.VerifyAll()
 
-    def test_url_with_query_string(self):
-        self.mox.StubOutWithMock(httplib2.Http, 'request')
+    @mock.patch('httplib2.Http.request')
+    def test_url_with_query_string(self, mockHttpRequest):
         uri = 'http://example.com/foo/bar/?show=thundercats&character=snarf'
         client = oauth.Client(self.consumer, None)
-        expected_kwargs = {
-            'method': 'GET',
-            'body': None,
-            'redirections': httplib2.DEFAULT_MAX_REDIRECTS,
-            'connection_type': None,
-            'headers': mox.IsA(dict),
-        }
-        def oauth_verifier(url):
+        random_result = random.randint(1,100)
+
+        def mockrequest(cl, ur, **kw):
+            self.failUnless(cl is client)
+            self.failUnlessEqual(frozenset(kw.keys()), frozenset(['method', 'body', 'redirections', 'connection_type', 'headers']))
+            self.failUnlessEqual(kw['body'], '')
+            self.failUnlessEqual(kw['connection_type'], None)
+            self.failUnlessEqual(kw['method'], 'GET')
+            self.failUnlessEqual(kw['redirections'], httplib2.DEFAULT_MAX_REDIRECTS)
+            self.failUnless(isinstance(kw['headers'], dict))
+
             req = oauth.Request.from_consumer_and_token(self.consumer, None,
                     http_method='GET', http_url=uri, parameters={})
             req.sign_request(oauth.SignatureMethod_HMAC_SHA1(), self.consumer, None)
             expected = parse_qsl(urlparse.urlparse(req.to_url()).query)
-            actual = parse_qsl(urlparse.urlparse(url).query)
-            if len(expected) != len(actual):
-                return False
+            actual = parse_qsl(urlparse.urlparse(ur).query)
+            self.failUnlessEqual(len(expected), len(actual))
             actual = dict(actual)
             for key, value in expected:
                 if key not in ('oauth_signature', 'oauth_nonce', 'oauth_timestamp'):
-                    if actual[key] != value:
-                        return False
-            return True
-        httplib2.Http.request(client, mox.Func(oauth_verifier), **expected_kwargs)
-        self.mox.ReplayAll()
+                    self.failUnlessEqual(actual[key], value)
+
+            return random_result
+
+        mockHttpRequest.side_effect = mockrequest
+
         client.request(uri, 'GET')
-        self.mox.VerifyAll()
+
+    @mock.patch('httplib2.Http.request')
+    @mock.patch('oauth2.Request.from_consumer_and_token')
+    def test_multiple_values_for_a_key(self, mockReqConstructor, mockHttpRequest):
+        client = oauth.Client(self.consumer, None)
+
+        request = oauth.Request("GET", "http://example.com/fetch.php", parameters={'multi': ['1', '2']})
+        mockReqConstructor.return_value = request
+
+        client.request('http://whatever', 'POST', body='multi=1&multi=2')
+
+        self.failUnlessEqual(mockReqConstructor.call_count, 1)
+        self.failUnlessEqual(mockReqConstructor.call_args[1]['parameters'], {'multi': ['1', '2']})
+
+        self.failUnless('multi=1' in mockHttpRequest.call_args[1]['body'])
+        self.failUnless('multi=2' in mockHttpRequest.call_args[1]['body'])
 
     def test_multiple_values_for_a_key(self):
         self.mox.StubOutWithMock(httplib2.Http, 'request')
@@ -1052,4 +1309,3 @@ class TestClient(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
